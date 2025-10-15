@@ -1,13 +1,13 @@
-# admin.py
 from django.contrib import admin
 from .models import Category, SubCategory, Offer
+import uuid
+
 
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'slug', 'description']
-    prepopulated_fields = {'slug': ('name',)}
-    search_fields = ['name']
+    list_display = ['category_name', 'description']
+    search_fields = ['category_name']
     
     def has_module_permission(self, request):
         """Allow access for superusers, staff, and brands."""
@@ -42,9 +42,8 @@ class CategoryAdmin(admin.ModelAdmin):
 
 @admin.register(SubCategory)
 class SubCategoryAdmin(admin.ModelAdmin):
-    list_display = ['name', 'category', 'slug', 'description']
-    prepopulated_fields = {'slug': ('name',)}
-    search_fields = ['name', 'category__name']
+    list_display = ['subcategory_name', 'category','description']
+    search_fields = ['subcategory_name', 'category__name']
     list_filter = ['category']
     
     def has_module_permission(self, request):
@@ -83,24 +82,27 @@ class SubCategoryAdmin(admin.ModelAdmin):
 class OfferAdmin(admin.ModelAdmin):
     list_display = [
         'brand_name','subcategory', 
-        'discount_percent', 'discount_amount', 'is_active', 
+        'discount_percent','is_active', 
         'start_date', 'end_date', 'user'
     ]
-    prepopulated_fields = {'slug': ('brand_name',)}
-    search_fields = ['brand_name', 'description']
-    list_filter = ['is_active', 'usage_type', 'subcategory__category', 'subcategory']
+    prepopulated_fields = {'prefix':('brand_name',) }
+    search_fields = ['brand_name', 'description', 'user']
+    list_filter = ['is_active', 'usage_type', 'auto_voucher_generation', 'subcategory__category', 'subcategory']
     date_hierarchy = 'created_at'
-    readonly_fields = ['created_at']
+    readonly_fields = ['user','created_at']
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('subcategory', 'brand_name', 'slug')
+            'fields': ('user', 'subcategory', 'brand_name', 'prefix')
         }),
         ('Discount Details', {
-            'fields': ('description', 'discount_percent', 'discount_amount', 'minimum_purchase')
+            'fields': ('description', 'batch_size', 'discount_percent')
         }),
         ('Validity & Usage', {
             'fields': ('start_date', 'end_date', 'usage_type', 'max_uses', 'is_active')
+        }),
+        ('Machanism', {
+            'fields': ('auto_voucher_generation', 'max_vouchers_per_user', 'voucher_cooldown_hours')
         }),
         ('External Link', {
             'fields': ('brand_url',)

@@ -26,7 +26,7 @@ class CategoryListView(APIView):
     )
     def get(self, request):
         categories = Category.objects.prefetch_related(
-            "subcategories__products"
+            "subcategories__offers"
         ).all()
         
         if not categories.exists():
@@ -58,10 +58,10 @@ class CategoryDetailView(APIView):
         summary="Fetch a single category with subcategories and products",
         description="Retrieve a specific category by slug with all associated subcategories and products.",
     )
-    def get(self, request, slug):
+    def get(self, request, pk):
         category = get_object_or_404(
-            Category.objects.prefetch_related("subcategories__products"),
-            slug=slug
+            Category.objects.prefetch_related("subcategories__offers"),
+            pk=pk
         )
         
         serializer = CategorySerializer(category)
@@ -86,8 +86,8 @@ class OfferDetailView(APIView):
         summary="Fetch a single offer by slug",
         description="Retrieve a specific offer by its slug. Requires authentication and ownership.",
     )
-    def get(self, request, slug):
-        offer = get_object_or_404(Offer, slug=slug, is_active=True)
+    def get(self, request, pk):
+        offer = get_object_or_404(Offer, pk=pk, is_active=True)
         
         # Check ownership permission
         self.check_object_permissions(request, offer)

@@ -1,6 +1,12 @@
-# serializers.py
+from datetime import timezone
+
 from rest_framework import serializers
 from .models import Category, SubCategory, Offer
+
+import logging
+
+logger=logging.getLogger(__name__)
+
 
 
 class OfferSerializer(serializers.ModelSerializer):
@@ -10,23 +16,20 @@ class OfferSerializer(serializers.ModelSerializer):
     class Meta:
         model = Offer
         fields = [
-            "id", "subcategory", "subcategory_name", "user", "user_email",
-            "slug", "brand_name", "coupon_code", "description", 
-            "discount_percent", "discount_amount", "start_date", "end_date", 
-            "usage_type", "is_active", "max_uses", "minimum_purchase", 
-            "created_at", "retailer_url"
+        'id', 'brand_name','description', 'discount_percent', 'start_date', 'end_date', 'usage_type',
+        'max_usage'
         ]
-        read_only_fields = ["id", "user", "user_email", "subcategory_name", "created_at"]
+        read_only_fields = ["id", "user", "subcategory_name", "created_at"]
 
 
 class SubCategorySerializer(serializers.ModelSerializer):
     # Use the correct related_name from the model
-    products = OfferSerializer(many=True, read_only=True)
+    offers = OfferSerializer(many=True, read_only=True)
     category_name = serializers.CharField(source="category.name", read_only=True)
 
     class Meta:
         model = SubCategory
-        fields = ["id", "category", "category_name", "name", "slug", "description", "products"]
+        fields = ["id", "category", "category_name", "subcategory_name","description", "offers"]
         read_only_fields = ["id", "category_name"]
 
 
@@ -35,5 +38,5 @@ class CategorySerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Category
-        fields = ["id", "name", "slug", "description", "subcategories"]
+        fields = ["id", "category_name", "description", "subcategories"]
         read_only_fields = ["id"]
