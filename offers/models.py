@@ -71,7 +71,7 @@ class Offer(models.Model):
     brand_url = models.URLField(help_text="External website where coupon can be used")
     auto_voucher_generation = models.BooleanField(
         default=False,
-        help_text="If checked voucher(s) generate automatically. Otherwise, you must create Voucher for this offer manually."
+        help_text="If checked voucher(s) generate automatically. Otherwise, you must create Voucher for this offer manually,"
     )
     
     # New fields for user limitations

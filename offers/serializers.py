@@ -1,7 +1,7 @@
 from datetime import timezone
 
 from rest_framework import serializers
-from .models import Category, SubCategory, Offer
+from .models import *
 
 import logging
 
@@ -40,3 +40,25 @@ class CategorySerializer(serializers.ModelSerializer):
         model = Category
         fields = ["id", "category_name", "description", "subcategories"]
         read_only_fields = ["id"]
+        
+        
+        
+class VoucherSerializer(serializers.ModelSerializer):
+    offer = OfferSerializer(read_only=True)
+    claimed_by = serializers.CharField(source='user.email', read_only=True)
+    
+    class Meta:
+        model = Voucher
+        fields = [ 'id','offer','claimed_by', 'coupon', 'claimed', 'revealed_at' ]
+        read_only_fields = ['id']
+        
+        
+
+class VoucherReservationLogSerializer(serializers.ModelSerializer):
+    user = serializers.CharField(source='user.email', read_only=True)
+    voucher = VoucherSerializer(many=True, read_only=True)
+    
+    class Meta:
+        model = VoucherReservationLog
+        fields = [ 'id', 'user', 'voucher', 'claimed_at' ]
+        read_only_fields = [ 'id', 'user', 'voucher' ]
