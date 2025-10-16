@@ -21,7 +21,7 @@ class Category(models.Model):
         verbose_name_plural = 'Categories'
 
     def __str__(self):
-        return self.name
+        return self.category_name
 
 
 class SubCategory(models.Model):
@@ -36,7 +36,7 @@ class SubCategory(models.Model):
         verbose_name_plural = 'SubCategories'
 
     def __str__(self):
-        return f"{self.category.name} → {self.name}"
+        return f"{self.category.category_name} → {self.subcategory_name}"
 
 
 class Offer(models.Model):
@@ -71,7 +71,7 @@ class Offer(models.Model):
     brand_url = models.URLField(help_text="External website where coupon can be used")
     auto_voucher_generation = models.BooleanField(
         default=False,
-        help_text="Automatically generate vouchers after saving"
+        help_text="If checked voucher(s) generate automatically. Otherwise, you must create Voucher for this offer manually."
     )
     
     # New fields for user limitations
@@ -129,7 +129,7 @@ class Offer(models.Model):
             
             # Ensure uniqueness
             if code not in existing_codes and code not in [v.coupon for v in voucher_codes]:
-                voucher_codes.append(Voucher(offer=self, coupon=code))
+                voucher_codes.append(Voucher(offer=self, coupon=code.upper()))
         
         if len(voucher_codes) < self.batch_size:
             raise ValidationError(
@@ -138,42 +138,22 @@ class Offer(models.Model):
         
         # Bulk create all vouchers
         with transaction.atomic():
-            Voucher.objects.bulk_create(voucher_codes, batch_size=1000)
+            Voucher.objects.bulk_create(voucher_codes, batch_size=self.batch_size)
         
         return len(voucher_codes)
-    
-    def get_available_voucher_count(self):
-        """Get count of unreserved vouchers"""
-        return self.vouchers.filter(reserved_by__isnull=True).count()
-    
-    def get_total_uses(self):
-        """Get total number of times vouchers have been used"""
-        return self.vouchers.filter(is_seen=True).count()
 
 
 class Voucher(models.Model):
     offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name='vouchers')
+    claimed_by = models.ForeignKey(User, on_delete=models.DO_NOTHING,blank=True, null=True, related_name='user')
     coupon = models.CharField(
-        max_length=64, 
+        max_length=128, 
         unique=True,
         validators=[MinLengthValidator(8)]
     )
-    is_seen = models.BooleanField(
+    claimed = models.BooleanField(
         default=False,
         help_text="Has this voucher been revealed/used by a customer"
-    )
-    reserved_by = models.ForeignKey(
-        User, 
-        on_delete=models.SET_NULL,
-        related_name='reserved_vouchers',
-        blank=True, 
-        null=True,
-        help_text="User who has reserved this voucher"
-    )
-    reserved_at = models.DateTimeField(
-        blank=True, 
-        null=True,
-        help_text="When the voucher was reserved"
     )
     revealed_at = models.DateTimeField(
         blank=True,
@@ -181,34 +161,30 @@ class Voucher(models.Model):
         help_text="When the voucher code was first revealed to the user"
     )
     
+    revealed_at.short_description = 'Voucher claimed at'
+    claimed_by.short_description = 'Voucher claimed by'
+    coupon.short_description = 'Coupon code'
+    
+    
     class Meta:
         ordering = ['offer', 'coupon']
         verbose_name = 'Voucher Code'
         verbose_name_plural = 'Voucher Codes'
         indexes = [
-            models.Index(fields=['offer', 'reserved_by']),
-            models.Index(fields=['reserved_at']),
-            models.Index(fields=['is_seen']),
+            models.Index(fields=['offer']),
+            models.Index(fields=['revealed_at']),
+            models.Index(fields=['claimed']),
         ]
         
     def __str__(self):
-        status = 'used' if self.is_seen else ('reserved' if self.reserved_by else 'available')
+        status = 'used' if self.claimed else ('reserved' if self.claimed_by else 'available')
         return f'{self.coupon} - {status}'
     
-    def is_reservation_expired(self):
+    def is_eligible_for_new_voucher(self):
         """Check if reservation has expired"""
-        if not self.reserved_at or not self.offer.reservation_expiry_minutes:
-            return False
-        
-        expiry_time = self.reserved_at + timedelta(minutes=self.offer.reservation_expiry_minutes)
-        return timezone.now() > expiry_time and not self.is_seen
-    
-    def release_if_expired(self):
-        """Release reservation if expired and not used"""
-        if self.is_reservation_expired():
-            self.reserved_by = None
-            self.reserved_at = None
-            self.save(update_fields=['reserved_by', 'reserved_at'])
+        twenty_four_hour = self.revealed_at + timedelta(days=1)
+        now = timezone.now()
+        if self.claimed and twenty_four_hour < now:
             return True
         return False
 
@@ -216,51 +192,14 @@ class Voucher(models.Model):
 class VoucherReservationLog(models.Model):
     """Track user reservation history for enforcement of limits"""
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='voucher_reservations')
-    offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name='reservation_logs')
     voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE, related_name='reservation_logs')
-    reserved_at = models.DateTimeField(auto_now_add=True)
-    released_at = models.DateTimeField(null=True, blank=True)
-    was_used = models.BooleanField(default=False)
+    claimed_at = models.DateTimeField(auto_now_add=True)
     
     class Meta:
-        ordering = ['-reserved_at']
+        ordering = ['-claimed_at']
         indexes = [
-            models.Index(fields=['user', 'offer', 'reserved_at']),
+            models.Index(fields=['user', 'voucher', 'claimed_at']),
         ]
     
     def __str__(self):
-        return f"{self.user} - {self.offer.brand_name} - {self.reserved_at}"
-    
-    @classmethod
-    def can_user_reserve(cls, user, offer):
-        """
-        Check if user can reserve a voucher from this offer based on:
-        1. Total vouchers reserved from this offer
-        2. Cooldown period since last reservation
-        """
-        # Check total reservations (active + used)
-        total_reservations = cls.objects.filter(
-            user=user,
-            offer=offer,
-            released_at__isnull=True  # Only count non-released reservations
-        ).count()
-        
-        if total_reservations >= offer.max_vouchers_per_user:
-            return False, f"You've reached the maximum of {offer.max_vouchers_per_user} voucher(s) for this offer"
-        
-        # Check cooldown period
-        if offer.voucher_cooldown_hours > 0:
-            cooldown_threshold = timezone.now() - timedelta(hours=offer.voucher_cooldown_hours)
-            recent_reservation = cls.objects.filter(
-                user=user,
-                offer=offer,
-                reserved_at__gte=cooldown_threshold
-            ).first()
-            
-            if recent_reservation:
-                hours_left = offer.voucher_cooldown_hours - (
-                    (timezone.now() - recent_reservation.reserved_at).total_seconds() / 3600
-                )
-                return False, f"Please wait {hours_left:.1f} more hour(s) before reserving another voucher"
-        
-        return True, "OK"
+        return f"{self.user} claimed it on {self.claimed_at}"

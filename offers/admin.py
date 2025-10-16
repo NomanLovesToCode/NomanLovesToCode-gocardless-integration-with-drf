@@ -1,10 +1,7 @@
 from django.contrib import admin
-from .models import Category, SubCategory, Offer
-import uuid
+from .models import *
 
 
-
-@admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
     list_display = ['category_name', 'description']
     search_fields = ['category_name']
@@ -40,7 +37,7 @@ class CategoryAdmin(admin.ModelAdmin):
         return hasattr(request.user, 'role')
 
 
-@admin.register(SubCategory)
+
 class SubCategoryAdmin(admin.ModelAdmin):
     list_display = ['subcategory_name', 'category','description']
     search_fields = ['subcategory_name', 'category__name']
@@ -78,12 +75,12 @@ class SubCategoryAdmin(admin.ModelAdmin):
         return hasattr(request.user, 'role')
 
 
-@admin.register(Offer)
+
 class OfferAdmin(admin.ModelAdmin):
     list_display = [
         'brand_name','subcategory', 
         'discount_percent','is_active', 
-        'start_date', 'end_date', 'user'
+        'start_date', 'end_date', 'user', 'created_at'
     ]
     prepopulated_fields = {'prefix':('brand_name',) }
     search_fields = ['brand_name', 'description', 'user']
@@ -156,7 +153,7 @@ class OfferAdmin(admin.ModelAdmin):
         """
         qs = super().get_queryset(request)
         
-        # Superusers and staff see everything
+        # Superusers f see everything
         if request.user.is_superuser:
             return qs
         
@@ -175,6 +172,10 @@ class OfferAdmin(admin.ModelAdmin):
         if not change and not request.user.is_superuser:
             # Only auto-assign for new offers by non-superusers
             obj.user = request.user
+            
+        if not change and request.user.is_superuser:
+            obj.user = request.user
+            
         super().save_model(request, obj, form, change)
     
     def get_readonly_fields(self, request, obj=None):
@@ -251,3 +252,138 @@ class OfferAdmin(admin.ModelAdmin):
         
         # General permission check
         return hasattr(request.user, 'role') and request.user.role == "brand"
+    
+    
+class VoucherAdmin(admin.ModelAdmin):
+    list_display = ['offer', 'coupon','claimed']
+    search_fields = ['coupon']
+    list_filter = ['claimed']
+    readonly_fields = ['claimed_by',]
+    
+    fieldsets = (
+        
+        (
+            "Basic Information", {
+                'fields': ('offer',)
+            }
+        ),
+        (
+            "Voucher Information", {
+                'fields': ('coupon', 'claimed')
+            }
+        ),
+        
+        (
+            'Metadata', {
+                'fields':('claimed_by','revealed_at',),
+                "classes":('collaspe',)
+            }
+        )
+        
+    )
+    
+    def get_fieldsets(self, request, obj=None):
+        
+        fieldsets = super().get_fieldsets(request, obj)
+        
+        return fieldsets
+    
+    
+    def has_module_permission(self, request):
+        
+        if not request.user.is_authenticated:
+            return False
+        
+        if request.user.is_superuser or request.user.is_staff:
+            return True
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+    
+
+    
+    def get_queryset(self, request):
+        
+        qs = super().get_queryset(request)
+        
+        # admin see everything
+        
+        if request.user.is_superuser:
+            return qs
+        
+        #brand see only his stuffs 
+        if request.user.is_staff or hasattr(request.user, 'role') and request.user.role == 'brand':
+            return qs.filter(offer__user=request.user)
+        
+        return qs.none() # if not staff and admin see nothing
+    
+    
+    def save_model(self, request, obj, form, change):
+            
+        super().save_model( request, obj, form, change)
+        
+        
+    def has_add_permission(self, request):
+        
+        user = request.user
+        
+        if not user.is_authenticated:
+            return False
+        
+        if user.is_staff:
+            return True
+        
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+
+
+    def has_change_permission(self, request, obj=None):
+        
+        user = request.user
+        
+        if not user.is_authenticated:
+            return False
+        
+        if user.is_staff:
+            return True
+        
+        if obj is not None:
+            return obj.offer.user == user
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+
+    def has_delete_permission(self, request, obj=None):
+        
+        user = request.user
+        
+        if not user.is_authenticated:
+            return False
+        
+        if user.is_staff:
+            return True
+        
+        if obj is not None:
+            return obj.offer.user == user
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+
+
+    def has_view_permission(self, request, obj=None):
+        
+        user = request.user
+        
+        if not user.is_authenticated:
+            return False
+        
+        if user.is_staff:
+            return True
+        
+        if obj is not None:
+            return obj.offer.user == user
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+
+
+admin.site.register(Category, CategoryAdmin)
+admin.site.register(SubCategory, SubCategoryAdmin)
+admin.site.register(Offer, OfferAdmin)
+admin.site.register(Voucher, VoucherAdmin)

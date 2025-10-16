@@ -1,7 +1,7 @@
 # signals.py
 from django.db.models.signals import post_save
 from django.dispatch import receiver
-from .models import Offer
+from .models import Offer, Voucher
 import logging
 
 logger = logging.getLogger(__name__)
@@ -21,11 +21,33 @@ def generate_vouchers_on_offer_creation(sender, instance, created, **kwargs):
     """
     # Only generate vouchers for NEW offers (not updates)
     # and only if auto_voucher_generation is True
-    if created and instance.auto_voucher_generation:
+    if instance.auto_voucher_generation:
         try:
-            voucher_count = instance.generate_vouchers()
-            logger.info("Vouchers are being created from the signals")            
+            existing_count = Voucher.objects.filter(offer=instance).count()
+            remaining_to_generate = instance.batch_size - existing_count
+            if remaining_to_generate > 0:
+                # Temporarily adjust batch_size to generate only the remaining
+                original_batch_size = instance.batch_size
+                instance.batch_size = remaining_to_generate
+                voucher_count = instance.generate_vouchers()
+                instance.batch_size = original_batch_size  # Restore original
+                logger.info(f"Generated {voucher_count} additional vouchers for Offer {instance.id}")
+            else:
+                logger.info(f"All {instance.batch_size} vouchers already exist for Offer {instance.id}")
         except Exception as e:
-            logger.error("Error in Voucher generation from the signals because of {e}", exc_info=True)
+            logger.error(f"Error generating vouchers for {instance.brand_name}: {e}", exc_info=True)
             raise ValueError(f"✗ Error generating vouchers for {instance.brand_name}: {e}")
-            
+    
+    # If updating an existing offer and auto_voucher_generation is now False,
+    # delete all associated vouchers
+    if not created and not instance.auto_voucher_generation:
+        try:
+            vouchers = Voucher.objects.filter(offer=instance)
+            if vouchers.exists():
+                deleted_count, _ = vouchers.delete()
+                logger.info(f"Deleted {deleted_count} vouchers for Offer {instance.id}")
+            else:
+                logger.info(f"No vouchers found to delete for Offer {instance.id}")
+        except Exception as e:
+            logger.error(f"Error deleting vouchers for {instance.brand_name}: {e}", exc_info=True)
+            # Don't raise here to avoid blocking offer update; log instead
