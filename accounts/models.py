@@ -38,12 +38,10 @@ class User(AbstractBaseUser, PermissionsMixin):
     
     ROLE = (
         ("customer", "Customer"),
-        ("brand", "brand"),
+        ("brand", "Brand"),
         ("admin", "Admin")
     )
     
-    first_name = models.CharField(max_length=50)
-    last_name = models.CharField(max_length=50)
     email = models.EmailField(unique=True)
     phone_no = models.CharField(max_length=18)
     date_of_birth = models.DateField(blank=True, null=True)
@@ -74,12 +72,29 @@ class EmailVerification(models.Model):
     def __str__(self):
         token_display = self.token[:5] + "..." if self.token else "no token"
         
-        return f"{self.user.first_name} {self.user.last_name}'s token : {token_display}"
+        return f"{self.user.email}'s token : {token_display}"
     
     def is_valid(self):
         return timezone.now() <= self.expires_at
     
+
     
+
+class PasswordResetCode(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    code = models.CharField(max_length=4)
+    created_at = models.DateTimeField(auto_now_add=True)
+    expires_at = models.DateTimeField(null=True, blank=True)
+    used = models.BooleanField(default=False)
+    
+    def __str__(self):
+        return f"Reset code for {self.user.email} - Code: {self.code}"
+    
+    def is_valid(self):
+        return timezone.now() <= self.expires_at and not self.used
+    
+    
+
 class BrandAccountRequest(models.Model):
     brand_name = models.CharField(max_length=100)
     brand_logo = models.ImageField(upload_to='brand_request_logo/', blank=True, null=True)
@@ -100,17 +115,3 @@ class BrandAccountRequest(models.Model):
         if not self.brand_request_id:
             self.brand_request_id = secrets.token_hex(32)
         return super().save(*args, **kwargs)
-    
-
-class PasswordResetCode(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    code = models.CharField(max_length=4)
-    created_at = models.DateTimeField(auto_now_add=True)
-    expires_at = models.DateTimeField(null=True, blank=True)
-    used = models.BooleanField(default=False)
-    
-    def __str__(self):
-        return f"Reset code for {self.user.email} - Code: {self.code}"
-    
-    def is_valid(self):
-        return timezone.now() <= self.expires_at and not self.used

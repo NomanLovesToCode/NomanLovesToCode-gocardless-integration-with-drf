@@ -33,10 +33,33 @@ class UserProfile(models.Model):
     ]
     
     
-    user = models.OneToOneField(User, on_delete=models.CASCADE, related_name='profile')
-    first_name = models.CharField(max_length=100, default="Test")
-    last_name = models.CharField(max_length=100, default="User")
-    employment_status = models.CharField(max_length=100, choices=STATUS, default='employed')
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name='profile'
+    )
+    
+    first_name = models.CharField(
+        max_length=100,
+        default="Test"
+    )
+    
+    last_name = models.CharField(
+        max_length=100,
+        default="User"
+    )
+    
+    profile_picture = models.ImageField(
+        upload_to='user_profile_picture/',
+        blank=True, null=True
+    )
+    
+    employment_status = models.CharField(
+        max_length=100,
+        choices=STATUS,
+        default='employed'
+    )
+    
     job_details = models.TextField(max_length=100, choices=JOB, default='ambulance')
     employer = models.CharField(max_length=100, choices=EMPLOYER, default='ambulance')
     id_card_front = models.FileField(upload_to='id_cards/', null=True, blank=True)

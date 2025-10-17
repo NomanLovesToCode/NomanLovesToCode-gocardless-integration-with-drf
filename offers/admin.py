@@ -40,7 +40,7 @@ class CategoryAdmin(admin.ModelAdmin):
 
 class SubCategoryAdmin(admin.ModelAdmin):
     list_display = ['subcategory_name', 'category','description']
-    search_fields = ['subcategory_name', 'category__name']
+    search_fields = ['subcategory_name', 'category__category_name']
     list_filter = ['category']
     
     def has_module_permission(self, request):
@@ -83,14 +83,14 @@ class OfferAdmin(admin.ModelAdmin):
         'start_date', 'end_date', 'user', 'created_at'
     ]
     prepopulated_fields = {'prefix':('brand_name',) }
-    search_fields = ['brand_name', 'description', 'user']
+    search_fields = ['brand_name','product', 'description', 'user__email']
     list_filter = ['is_active', 'usage_type', 'auto_voucher_generation', 'subcategory__category', 'subcategory']
     date_hierarchy = 'created_at'
     readonly_fields = ['user','created_at']
     
     fieldsets = (
         ('Basic Information', {
-            'fields': ('user', 'subcategory', 'brand_name', 'prefix')
+            'fields': ('user', 'subcategory', 'brand_name', 'prefix', 'product')
         }),
         ('Discount Details', {
             'fields': ('description', 'batch_size', 'discount_percent')
@@ -256,7 +256,7 @@ class OfferAdmin(admin.ModelAdmin):
     
 class VoucherAdmin(admin.ModelAdmin):
     list_display = ['offer', 'coupon','claimed']
-    search_fields = ['coupon']
+    search_fields = ['coupon', 'offer__brand_name', 'offer__product']
     list_filter = ['claimed']
     readonly_fields = ['claimed_by',]
     
@@ -275,7 +275,7 @@ class VoucherAdmin(admin.ModelAdmin):
         
         (
             'Metadata', {
-                'fields':('claimed_by','revealed_at',),
+                'fields':('claimed_by','claimed_at',),
                 "classes":('collaspe',)
             }
         )
@@ -381,9 +381,62 @@ class VoucherAdmin(admin.ModelAdmin):
             return obj.offer.user == user
         
         return hasattr(request.user, 'role') and request.user.role == "brand"
+    
+    
+class VoucherReservationLogAdmin(admin.ModelAdmin):
+    list_display = ['user', 'voucher', 'claimed_at']
+    search_fields = ['user__email', 'voucher__coupon']
+    readonly_fields = ['user', 'voucher', 'claimed_at']
+    
+    
+    def has_module_permission(self, request):
+        
+        if not request.user.is_authenticated:
+            return False
+        
+        if request.user.is_superuser or request.user.is_staff:
+            return True
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+    
+    
+    def get_queryset(self, request):
+        
+        qs = super().get_queryset(request)
+        
+        # admin see everything
+        
+        if request.user.is_superuser:
+            return qs
+        
+        #brand see only his stuffs 
+        if request.user.is_staff or hasattr(request.user, 'role') and request.user.role == 'brand':
+            return qs.filter(voucher__offer__user=request.user)
+        
+        return qs.none() # if not staff and admin see nothing
+    
+    
+    def has_view_permission(self, request, obj=None):
+        
+        user = request.user
+        
+        if not user.is_authenticated:
+            return False
+        
+        if user.is_staff:
+            return True
+        
+        if obj is not None:
+            return obj.offer.user == user
+        
+        return hasattr(request.user, 'role') and request.user.role == "brand"
+    
+    
+    
 
 
 admin.site.register(Category, CategoryAdmin)
 admin.site.register(SubCategory, SubCategoryAdmin)
 admin.site.register(Offer, OfferAdmin)
 admin.site.register(Voucher, VoucherAdmin)
+admin.site.register(VoucherReservationLog, VoucherReservationLogAdmin)

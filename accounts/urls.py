@@ -8,6 +8,7 @@ urlpatterns = [
     path('brand-account-request/', BrandAccountRequestView.as_view()),
     path('resend-verification/', ResendMailVerificationView.as_view()),
     path('login/', UserLoginView.as_view()),
+    path('change-password/', ChangePasswordView.as_view()),
     path('forget-password/', ForgetPasswordRequestView.as_view()),
     path('otp-validation/', CheckResetCodeView.as_view()),
     path('reset-password/', ResetPasswordView.as_view()),

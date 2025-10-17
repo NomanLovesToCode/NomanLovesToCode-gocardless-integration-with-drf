@@ -6,9 +6,11 @@ from rest_framework import serializers
 
 from .tasks import verify_phone_number
 from user_consent.consent_service import  UserConsentService
+from user_profile.models import UserProfile
 from notifications.marketing_service import MarketingPreferenceService
 from user_consent.consent_service import UserConsentService
 from notifications.marketing_service import MarketingPreferenceService
+
 
 from .models import *
 
@@ -18,6 +20,8 @@ logger = logging.getLogger(__name__)
 import re  # Added for password complexity
 
 class RegistrationSerializer(serializers.ModelSerializer):
+    first_name = serializers.CharField()
+    last_name = serializers.CharField()
     agreed_to_terms_and_conditions = serializers.BooleanField(default=False)
     agreed_to_policy = serializers.BooleanField(default=False)
     agreed_to_sms_marketing = serializers.BooleanField(default=False)
@@ -61,7 +65,8 @@ class RegistrationSerializer(serializers.ModelSerializer):
         return data
         
     def create(self, validated_data):
-        
+        first_name = validated_data.pop('first_name')
+        last_name = validated_data.pop('last_name')
         password = validated_data.pop('password')
         validated_data.pop('confirm_password')
         # Extract user fields (exclude consents/marketing/password2)
@@ -79,6 +84,14 @@ class RegistrationSerializer(serializers.ModelSerializer):
         user.set_password(password)
         user.save()
         
+        
+        profile = UserProfile.objects.create(
+            user=user,
+            first_name=first_name,
+            last_name=last_name
+            )
+        
+        profile.save()
         
         consent_data = {
             'agreed_to_terms_and_conditions': validated_data.get('agreed_to_terms_and_conditions'),
@@ -122,12 +135,6 @@ class RegistrationResponseSerializer(serializers.Serializer):
     refresh_token = serializers.CharField()
 
 
-class BrandAccountRequestSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = BrandAccountRequest
-        fields = ['business_name', 'business_sector', 'website_link', 'owner_name', 'contact_email', 'contact_phone', 'contact_details', 'document']
-        read_only_fields = ['id', 'account_created', 'submitted_at']  # Fixed: 'approved' → 'account_created'
-
 
 class LoginSerializer(serializers.Serializer):
     email = serializers.EmailField()
@@ -167,6 +174,24 @@ class LoginResponseSerializer(serializers.Serializer):
 
 class ResendVerificationRequestSerializer(serializers.Serializer):
     email = serializers.EmailField()
+    
+    
+class ChangePasswordSerializer(serializers.Serializer):
+    old_password = serializers.CharField()
+    new_password = serializers.CharField()
+    confirm_password = serializers.CharField()
+    
+    def validate(self, data):
+        if data['new_password'] != data['confirm_password']:
+            raise serializers.ValidationError("Password doesn't match")
+        
+        if len(data['new_password']) < 8:
+            raise serializers.ValidationError("Password is too small. At least 8 characters. ")
+        
+        # Added: Same complexity as UserSerializer
+        if not re.search(r'^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)', data['new_password']):
+            raise serializers.ValidationError("Password must contain uppercase, lowercase, and number.")
+        
 
 
 class ForgetPasswordRequestSerializer(serializers.Serializer):
@@ -232,10 +257,10 @@ class CheckResetCodeSerializer(serializers.Serializer):
 class ResetPasswordSerializer(serializers.Serializer):
     email = serializers.EmailField()
     password = serializers.CharField()
-    password2 = serializers.CharField()
+    confirm_password = serializers.CharField()
     
     def validate(self, data):
-        if data['password'] != data['password2']:
+        if data['password'] != data['confirm_password']:
             raise serializers.ValidationError("Password doesn't match")
         
         if len(data['password']) < 8:
@@ -252,3 +277,10 @@ class ResetPasswordSerializer(serializers.Serializer):
             raise serializers.ValidationError({"email": "User with this email does not exist."})
         
         return data
+    
+    
+class BrandAccountRequestSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = BrandAccountRequest
+        fields = ['brand_name','brand_logo', 'brand_sector', 'website_link', 'owner_name', 'contact_email', 'contact_phone', 'contact_details','address_line1', 'address_line2', 'document']
+        read_only_fields = ['id','brand_request_id', 'submitted_at'] 

@@ -1,4 +1,5 @@
-# views.py
+from django.utils import timezone
+from datetime import timedelta
 from django.shortcuts import get_object_or_404
 from rest_framework.views import APIView
 from rest_framework.response import Response
@@ -6,8 +7,8 @@ from rest_framework import permissions, status
 from drf_spectacular.utils import extend_schema, OpenApiResponse
 from django.db.models import Q
 
-from .models import Category,SubCategory, Offer
-from .serializers import CategorySerializer, OfferSerializer
+from .models import *
+from .serializers import *
 from custom_permissions.retailer_permission import IsOwner
 from custom_permissions.user_subscribed_permission import IsSubscribed
 
@@ -89,6 +90,16 @@ class OfferDetailView(APIView):
     def get(self, request, pk):
         offer = get_object_or_404(Offer, pk=pk, is_active=True)
         
+        if not offer.is_valid():
+            
+            return Response (
+                {
+                    'detail': "This offer has been expired!",
+                    'status': status.HTTP_403_FORBIDDEN
+                }
+            )
+        
+        
         # Check ownership permission
         self.check_object_permissions(request, offer)
         
@@ -132,3 +143,121 @@ class OfferSearchView(APIView):
 
         serializer = OfferSerializer(offers, many=True)
         return Response({"offers": serializer.data})
+
+
+
+
+
+class VoucherDetailView(APIView):
+    # Permission class is by default IsAuthenticated
+    permission_classes = [permissions.IsAuthenticated]
+    
+    @extend_schema(
+        tags=["Voucher"],
+        responses={
+            200: VoucherSerializer,
+            404: OpenApiResponse(description="Voucher not found")
+        },
+        summary="Fetch a single voucher by offer id",
+        description="Retrieve a specific voucher for the offer by its id. Requires authentication.",
+    )
+    def get(self, request,pk): # It is the primary key or id of the related offer
+        
+        offer = get_object_or_404(Offer, pk=pk, is_active=True)
+        
+        if not offer.is_valid():
+            if offer.is_active:
+                offer.is_active = False
+                offer.save()                    
+            
+            return Response (
+                {
+                    'detail': "This offer has been expired!",
+                    'status': status.HTTP_403_FORBIDDEN
+                }
+            )
+        
+        # getting all the vouchers those are of this offer and not claimed by any user
+        vouchers = Voucher.objects.filter(offer=offer, claimed=False, claimed_by=None)
+        
+        if not vouchers.exists():
+            return Response (
+                {
+                    'error': 'Sorry! No voucher left for this offer',
+                    'status': status.HTTP_404_NOT_FOUND
+                }
+            )
+        
+        now = timezone.now()
+        
+        # Vouchers of this offer claimed by this user
+        try:
+            last_claimed_voucher = Voucher.objects.filter(offer=offer, claimed=True, claimed_by=request.user).order_by('-claimed_at').get()
+        except Voucher.DoesNotExist:
+            # Since the user didn't claimed any voucher.He gets an unclaimed voucher of this offer
+            
+            voucher = vouchers[0]
+            voucher.claimed = True
+            voucher.claimed_by = request.user
+            voucher.claimed_at = now
+            voucher.save()
+            
+            # Since the voucher is claimed assign the voucher in Voucher Reservation Log model
+            
+            VoucherReservationLog.objects.create(user=request.user, voucher=voucher, claimed_at=now)
+            
+            serializer = VoucherSerializer(voucher)
+            return Response(
+                {
+                    "detail": "Voucher data fetched successfully!",
+                    "data":serializer.data 
+                },
+                status=status.HTTP_200_OK
+            )
+            
+        except Exception as e:
+            return Response (
+                {
+                    'details': e,
+                    'status': status.HTTP_400_BAD_REQUEST
+                }
+            )
+            
+        
+        # since the user claimed voucher of this offer and the time has passed the offer's cooldown time he can claim a new one.
+        cooldown_hours = last_claimed_voucher.offer.voucher_cooldown_hours
+        cooldown_delta = timedelta(hours=cooldown_hours)
+        if now >= (last_claimed_voucher.claimed_at + cooldown_delta):
+            
+            voucher = vouchers[0]
+            voucher.claimed = True
+            voucher.claimed_by = request.user
+            voucher.claimed_at = timezone.now()
+            voucher.save()
+            
+            # Storing this voucher as claimed in Voucher Reservation model
+            VoucherReservationLog.objects.create(user=request.user, voucher=voucher, claimed_at=voucher.claimed_at)
+            
+            serializer = VoucherSerializer(voucher)
+            
+            return Response (
+                {
+                    'details': 'Your new coupon code is here',
+                    'data': serializer.data
+                }
+            )                   
+            
+        else:
+            
+            # Since the cooldown time hasn't end the user shall see his last claimed voucher
+            remaining = (last_claimed_voucher.claimed_at + cooldown_delta) - now
+            hours_remaining = int(remaining.total_seconds() / 3600)  # simple remaining hours
+            
+            serializer = VoucherSerializer(last_claimed_voucher)
+            
+            return Response (
+                {
+                    'details': f'You must wait for another {hours_remaining} hours to claim new coupon code',
+                    'data': serializer.data
+                }
+            )

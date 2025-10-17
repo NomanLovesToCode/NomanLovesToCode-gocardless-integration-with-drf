@@ -6,12 +6,15 @@ from rest_framework.response import Response
 from rest_framework import status
 from rest_framework.views import APIView
 from rest_framework.permissions import IsAuthenticated
+from rest_framework.parsers import MultiPartParser, FormParser
 from custom_permissions.admin_permission import IsAdminOrReadOnly
+
 # Create your views here.
 
 
 class CompanyLogoView(APIView):
     permission_classes = [IsAuthenticated, IsAdminOrReadOnly]
+    parser_classes = [MultiPartParser, FormParser]
     
     def post(self,request):
         serializer = CompanyLogoSerializer(data=request.data)
@@ -20,7 +23,9 @@ class CompanyLogoView(APIView):
             serializer.save()
             
             return Response(
-                {"detail":"Logo uploaded sucessfully"},
+                {"detail":"Logo uploaded sucessfully",
+                 "data":serializer.data
+                 },
                 status = status.HTTP_201_CREATED
             )
             
@@ -32,7 +37,7 @@ class CompanyLogoView(APIView):
     
     def get(self,request):
         try:
-            logo = CompanyLogo.objects.get.all().first()
+            logo = CompanyLogo.objects.all().first()
             
             serializer = CompanyLogoSerializer(logo)
             

@@ -1,14 +1,17 @@
 # models.py
 from django.utils.text import slugify
 from django.utils import timezone
-from django.db import models, transaction
+from django.db import models, transaction, IntegrityError
 from django.core.validators import MinLengthValidator
 from django.core.exceptions import ValidationError
 from accounts.models import User
+from datetime import timedelta
 import uuid
 import secrets
 import random
-from datetime import timedelta
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 class Category(models.Model):
@@ -16,7 +19,7 @@ class Category(models.Model):
     description = models.CharField(max_length=256, blank=True, null=True)
 
     class Meta:
-        ordering = ["category_name"]
+        ordering = ["id"]
         verbose_name = 'Category'
         verbose_name_plural = 'Categories'
 
@@ -52,6 +55,7 @@ class Offer(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name="offer_user")
     brand_name = models.CharField(max_length=100)
     prefix = models.CharField(max_length=100)
+    product = models.CharField(max_length=264)
     description = models.TextField(blank=True, null=True, help_text="Optional: describe the offer")
     batch_size = models.PositiveIntegerField(
         default=1, 
@@ -63,7 +67,7 @@ class Offer(models.Model):
     end_date = models.DateTimeField(help_text="Time and date until when the offer will be valid")
     usage_type = models.CharField(max_length=10, choices=USAGE_CHOICES, default=MULTI_USE)
     is_active = models.BooleanField(default=True)
-    max_uses = models.PositiveIntegerField(
+    max_usage = models.PositiveIntegerField(
         null=True, blank=True, 
         help_text="Max total uses across all partners (null = unlimited)"
     )
@@ -83,7 +87,7 @@ class Offer(models.Model):
         default=24,
         help_text="Hours a user must wait before reserving another voucher (default: 24)"
     )
-
+    
     class Meta:
         ordering = ["-created_at"]
 
@@ -93,7 +97,7 @@ class Offer(models.Model):
     def save(self, *args, **kwargs):
         
         if self.prefix:
-            self.prefix.upper()
+            self.prefix=self.prefix.upper()
         super().save(*args, **kwargs)
         
     def is_valid(self):
@@ -108,7 +112,7 @@ class Offer(models.Model):
         """Validate model fields"""
         if self.start_date and self.end_date and self.start_date >= self.end_date:
             raise ValidationError("End date must be after start date")
-        if timezone.now() >= self.end_date:
+        if self.end_date and timezone.now() >= self.end_date:
             raise ValidationError("End date must be in the future")
         
         if self.discount_percent and (self.discount_percent < 0 or self.discount_percent > 100):
@@ -117,31 +121,24 @@ class Offer(models.Model):
     def generate_vouchers(self):
         """Generate unique voucher codes for this offer"""
         voucher_codes = []
-        existing_codes = set(Voucher.objects.values_list('coupon', flat=True))
-        
-        attempts = 0
-        max_attempts = self.batch_size * 10  # Prevent infinite loops
-        
-        while len(voucher_codes) < self.batch_size and attempts < max_attempts:
-            attempts += 1
-            random_length = random.randint(4, 16)
-            code = f"{self.prefix}-{uuid.uuid4().hex[:8].upper()}-{secrets.token_hex(random_length).upper()}"
-            
-            # Ensure uniqueness
-            if code not in existing_codes and code not in [v.coupon for v in voucher_codes]:
-                voucher_codes.append(Voucher(offer=self, coupon=code.upper()))
-        
-        if len(voucher_codes) < self.batch_size:
-            raise ValidationError(
-                f"Could only generate {len(voucher_codes)} unique codes out of {self.batch_size} requested"
-            )
-        
-        # Bulk create all vouchers
-        with transaction.atomic():
-            Voucher.objects.bulk_create(voucher_codes, batch_size=self.batch_size)
-        
+        for _ in range(self.batch_size):
+            attempts = 0
+            while attempts < 5:
+                attempts += 1
+                random_length = random.randint(4, 16)
+                code = f"{self.prefix}-{uuid.uuid4().hex[:8].upper()}-{secrets.token_hex(random_length).upper()}"
+                try:
+                    with transaction.atomic():
+                        voucher = Voucher(offer=self, coupon=code)
+                        voucher.full_clean()  # Validate
+                        voucher.save()
+                        voucher_codes.append(voucher)
+                        break
+                except IntegrityError:
+                    continue  # Retry
+            if attempts == 5:
+                logger.warning(f"Failed to generate unique code after 5 attempts")
         return len(voucher_codes)
-
 
 class Voucher(models.Model):
     offer = models.ForeignKey(Offer, on_delete=models.CASCADE, related_name='vouchers')
@@ -155,13 +152,13 @@ class Voucher(models.Model):
         default=False,
         help_text="Has this voucher been revealed/used by a customer"
     )
-    revealed_at = models.DateTimeField(
+    claimed_at = models.DateTimeField(
         blank=True,
         null=True,
         help_text="When the voucher code was first revealed to the user"
     )
     
-    revealed_at.short_description = 'Voucher claimed at'
+    claimed_at.short_description = 'Voucher claimed at'
     claimed_by.short_description = 'Voucher claimed by'
     coupon.short_description = 'Coupon code'
     
@@ -172,7 +169,7 @@ class Voucher(models.Model):
         verbose_name_plural = 'Voucher Codes'
         indexes = [
             models.Index(fields=['offer']),
-            models.Index(fields=['revealed_at']),
+            models.Index(fields=['claimed_at']),
             models.Index(fields=['claimed']),
         ]
         
@@ -180,13 +177,11 @@ class Voucher(models.Model):
         status = 'used' if self.claimed else ('reserved' if self.claimed_by else 'available')
         return f'{self.coupon} - {status}'
     
-    def is_eligible_for_new_voucher(self):
-        """Check if reservation has expired"""
-        twenty_four_hour = self.revealed_at + timedelta(days=1)
-        now = timezone.now()
-        if self.claimed and twenty_four_hour < now:
-            return True
-        return False
+    def is_eligible_for_new_voucher(self, user):
+        if not self.claimed_by == user:
+            return False
+        cooldown_delta = timedelta(hours=self.offer.voucher_cooldown_hours)
+        return timezone.now() >= (self.claimed_at + cooldown_delta)
 
 
 class VoucherReservationLog(models.Model):
@@ -195,11 +190,16 @@ class VoucherReservationLog(models.Model):
     voucher = models.ForeignKey(Voucher, on_delete=models.CASCADE, related_name='reservation_logs')
     claimed_at = models.DateTimeField(auto_now_add=True)
     
+    claimed_at.short_description = 'Claimed at'
+    
     class Meta:
         ordering = ['-claimed_at']
+        unique_together = ("user", "voucher")
         indexes = [
             models.Index(fields=['user', 'voucher', 'claimed_at']),
         ]
+        
+        
     
     def __str__(self):
         return f"{self.user} claimed it on {self.claimed_at}"

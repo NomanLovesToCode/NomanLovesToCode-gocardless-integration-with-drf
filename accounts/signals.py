@@ -23,7 +23,9 @@ def create_mail_verification_signal(sender, instance, created, **kwargs):
         
         
         
-# Creates BrandProfile model for user model having role.brand on approval of the BrandAccountRequest by the admin create user.brand manually then approve request
+# Admin creates user with role.brand for the BrandAccountRequest using brand request id
+# and then approve the BrandAccountRequest 
+# Brand profile creates automatically then using signals
 @receiver(post_save, sender=BrandAccountRequest)
 def create_brand_profile(sender, instance, created, **kwargs):
     if not created and instance.approved==True:

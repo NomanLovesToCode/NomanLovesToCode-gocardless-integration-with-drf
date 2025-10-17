@@ -116,8 +116,8 @@ class EmailVerificationView(APIView):
                 logger.debug(f"refresh token: {str(ref_token)}")
                 response = {
                     "email": user.email,
-                    "first_name": user.first_name,
-                    "last_name": user.last_name,
+                    "first_name": user.profile.first_name,
+                    "last_name": user.profile.last_name,
                     "access_token": str(ref_token.access_token),
                     "refresh_token": str(ref_token)
                 }
@@ -215,29 +215,6 @@ class ResendMailVerificationView(APIView):
                 {"detail": "No user found."}, 
                 status=status.HTTP_404_NOT_FOUND
             )
-
-
-class BrandAccountRequestView(CreateAPIView):
-    serializer_class = BrandAccountRequestSerializer
-    permission_classes = [AllowAny]
-    parser_classes = [MultiPartParser, FormParser]
-    
-    @extend_schema(
-        tags=['accounts'],
-        request=BrandAccountRequestSerializer,
-        responses={
-            201: OpenApiResponse(description="Brand account request submitted successfully"),
-            400: OpenApiResponse(description="Bad request"),
-        },
-        description="Submit a Brand account request.",
-        summary="Brand Account Request",
-    )
-    
-    def create(self, request, *args, **kwargs):
-        serializer = self.get_serializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        return Response({"detail": "Request submitted successfully"}, status=status.HTTP_201_CREATED)
 
 
 class GoogleLoginView(APIView):
@@ -365,6 +342,7 @@ class UserLoginView(APIView):
     )
     
     def post(self, request):
+        
         try:
             serializer = self.serializer_class(data=request.data)
             logger.info(f"Login data received: {request.data}")
@@ -373,9 +351,17 @@ class UserLoginView(APIView):
             user = serializer.validated_data["user"]
             update_last_login(None, user)
             logger.info(f"Authenticated user: {user}")
+            
+            # Special login logic for admin
+            
+            profile, created = UserProfile.objects.get_or_create(
+            user=user, 
+            defaults={'first_name': 'Hey', 'last_name': 'Admin'}
+        )
+            
             email = user.email
-            first_name = user.first_name
-            last_name = user.last_name
+            first_name = user.profile.first_name
+            last_name = user.profile.last_name
             
             refresh_token = RefreshToken.for_user(user)
             access_token = refresh_token.access_token
@@ -411,6 +397,37 @@ class UserLoginView(APIView):
                 {"detail": str(e)},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+            
+            
+class ChangePasswordView(APIView):
+    serializer_class = ChangePasswordSerializer
+    
+    @extend_schema(
+        tags=["accounts"],
+        request=ChangePasswordSerializer,
+        responses={
+            202: OpenApiResponse(description="success: OK"),
+            400: OpenApiResponse(description="Error: Bad Request"),
+            500: OpenApiResponse(description="Error: Internal Server Error"),
+        },
+        description="Login a user and return JWT tokens.",
+        summary="User Login",
+    )
+    def patch(self, request):
+        
+        password = request.data['old_password']
+        new_password = request.data['new_password']
+        
+        user =  request.user       
+
+        if not user.check_password(raw_password=password):
+            return Response({'error': 'Wrong password'}, status=400)
+        else:
+            user.set_password(new_password)
+            user.save()
+            return Response({'success': 'password changed successfully'}, status=200)
+
+
 
 
 class ForgetPasswordRequestView(APIView):
@@ -589,3 +606,28 @@ class UserLogoutView(APIView):
                 {"detail": "An error occurred during logout"},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
+
+
+
+class BrandAccountRequestView(CreateAPIView):
+    serializer_class = BrandAccountRequestSerializer
+    permission_classes = [AllowAny]
+    parser_classes = [MultiPartParser, FormParser]
+    
+    @extend_schema(
+        tags=['accounts'],
+        request=BrandAccountRequestSerializer,
+        responses={
+            201: OpenApiResponse(description="Brand account request submitted successfully"),
+            400: OpenApiResponse(description="Bad request"),
+        },
+        description="Submit a Brand account request.",
+        summary="Brand Account Request",
+    )
+    
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        return Response({"detail": "Request submitted successfully"}, status=status.HTTP_201_CREATED)
+            

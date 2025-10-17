@@ -17,14 +17,13 @@ class EmailVerificationInline(admin.StackedInline):
 # ------------------------
 class UserAdmin(admin.ModelAdmin):
     list_display = [
-        'email', 'first_name', 'last_name', 'role',
+        'email', 'role',
         'is_staff', 'is_active', 'mail_verified',
         'phone_no', 'last_logout', 'date_joined'
     ]
 
     search_fields = [
-        'email', 'first_name', 'last_name',
-        'role', 'phone_no', 'is_active', 'mail_verified'
+        'email', 'role', 'phone_no', 'is_active', 'mail_verified'
     ]
 
     list_filter = [
@@ -35,7 +34,7 @@ class UserAdmin(admin.ModelAdmin):
 
     # Fields for form (exclude sensitive like password; use actions for password reset)
     fields = [
-        'first_name', 'last_name', 'email', 'phone_no', 'date_of_birth',
+        'email', 'phone_no', 'date_of_birth',
         'role', 'is_active', 'is_staff', 'is_superuser', 'mail_verified', 'subscription_status', 'brand_request_id', 'password'
     ]
     readonly_fields = ['date_joined']  # Prevent editing auto-added fields
