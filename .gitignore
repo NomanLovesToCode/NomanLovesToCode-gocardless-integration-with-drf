@@ -1,0 +1,70 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.so
+*.egg
+*.egg-info/
+dist/
+build/
+.eggs/
+
+# Virtual environment
+env/
+venv/
+ENV/
+.venv/
+.env/  # ⚠️ don't commit your secrets
+.env
+env
+
+# Django
+*.log
+*.pot
+*.pyc
+db.sqlite3
+media/
+staticfiles/
+*.mo
+
+# Django specific stuff
+local_settings.py
+settings_local.py
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*~
+.project
+.pydevproject
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Coverage / testing
+.coverage
+.tox/
+nosetests.xml
+coverage.xml
+htmlcov/
+.pytest_cache/
+
+# MyPy / type checking
+.mypy_cache/
+.dmypy.json
+dmypy.json
+
+# Pipenv / Poetry
+Pipfile.lock
+poetry.lock
+
+# Jupyter
+.ipynb_checkpoints
+
+# Node (if frontend is present)
+node_modules/
+npm-debug.log
+yarn-error.log
+todo.txt
